@@ -1,15 +1,25 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
+using System.Linq;
+using System.IO;
 
 namespace WebApplication2.Model
 {
+    public class TimeValuePair
+    {
+        public string name { get; set; }
+        public string timestamp { get; set; }
+        public decimal value { get; set; }
+    }
+
     public class DataObject
     {
         public string name { get; set; }
@@ -33,36 +43,39 @@ namespace WebApplication2.Model
         static string urlFormat = "https://{0}/piwebapi/elements?path={1}";
         static string rootUrl = string.Format(urlFormat, piWebApiServer, databasePath);
 
-        static List<BuildingData> buildingList;
+        static string selector = "?selectedFields=Items.Name;Items.WebId";
+
         static BuildingData summaryData;
+        static List<BuildingData> buildingList;
 
         static APIModel()
         {
             dynamic root = MakeRequest(rootUrl);
-            InitializeDictionary(root);
 
-            string summaryQuery = root.Links.Attributes;
-            dynamic summary = MakeRequest(summaryQuery);
+            // initialize summaryData
+            string summaryQuery = root.Links.Attributes + selector;
+            dynamic summary = MakeRequest(summaryQuery).Items;
 
             summaryData = new BuildingData
             {
-                name = "Summary",
-                id = summary.WebId,
+                name = root.Name,
+                id = root.WebId,
                 attributes = new Dictionary<string, string>()
             };
 
-            string name = summary.Name;
-            string id = summary.WebId;
-            summaryData.attributes.Add(name, id);
-        }
+            foreach (dynamic d in summary)
+            {
+                string name = d.Name;
+                string id = d.WebId;
+                summaryData.attributes.Add(name, id);
+            }
 
-        static void InitializeDictionary(dynamic root)
-        {
+            // initialize buildingList
             buildingList = new List<BuildingData>();
             string buildingQuery = root.Links.Elements + "?templateName=BuildingTemplate&searchFullHierarchy=true";
-            dynamic buildings = MakeRequest(buildingQuery);
+            dynamic buildings = MakeRequest(buildingQuery).Items;
 
-            foreach (dynamic b in buildings.Items)
+            foreach (dynamic b in buildings)
             {
                 string path = b.Path;
                 if (!path.Contains("Buildings") || path.Contains("Inactive"))
@@ -70,13 +83,13 @@ namespace WebApplication2.Model
                     continue;
                 }
 
-                string attrQuery = b.Links.Attributes + "?selectedFields=Items.Name;Items.WebId";
-                dynamic attr = MakeRequest(attrQuery);
+                string attrQuery = b.Links.Attributes + selector;
+                dynamic attr = MakeRequest(attrQuery).Items;
 
                 BuildingData item = new BuildingData
                 {
-                    name = attr.Name,
-                    id = attr.WebId,
+                    name = b.Name,
+                    id = b.WebId,
                     attributes = new Dictionary<string, string>()
                 };
 
@@ -87,7 +100,6 @@ namespace WebApplication2.Model
                     item.attributes.Add(name, id);
                 }
 
-                string bName = b.Name;
                 buildingList.Add(item);
             }
         }
@@ -107,24 +119,90 @@ namespace WebApplication2.Model
 
             foreach (BuildingData entry in buildingList)
             {
-                dynamic dyn = MassRequest(entry.id);
+                List<dynamic> d = MassRequest(entry.id).ToObject<List<dynamic>>();
 
-                //decimal currentEL = ValueRequest(entry.Value, "EL_Intensity");
-                //decimal currentCW = ValueRequest(entry.Value, "CW_Intensity");
-                //decimal currentST = ValueRequest(entry.Value, "ST_Intensity");
-                //decimal currentTotal = ValueRequest(entry.Value, "Total_Intensity");
+                decimal currentEL = -1, currentCW = -1, currentST = -1, currentTotal = -1;
 
-                //info.Add(new DataObject { name = entry.Key,  el = currentEL, cw = currentCW, st = currentST, total = currentTotal });
+                foreach (dynamic metric in d)
+                {
+                    string metricName = metric.Name;
+                    //error handling here too
+                    Type t = metric.Value.Value.GetType();
+
+                    if (t == typeof(JObject))
+                        continue;
+
+                    string value = metric.Value.Value;
+
+                    switch (metricName)
+                    {
+                        case "EL_Intensity":
+                            currentEL = Decimal.TryParse(value, out currentEL) ? currentEL : -1;
+                            break;
+                        case "CW_Intensity":
+                            currentCW = Decimal.TryParse(value, out currentCW) ? currentCW : -1;
+                            break;
+                        case "ST_Intensity":
+                            currentST = Decimal.TryParse(value, out currentST) ? currentST : -1;
+                            break;
+                        case "Total_Intensity":
+                            currentTotal = Decimal.TryParse(value, out currentTotal) ? currentTotal : -1;
+                            break;
+                    }
+                }
+                //decimal currentEL = ValueRequest(entry, "EL_Intensity");
+                //decimal currentCW = ValueRequest(entry, "CW_Intensity");
+                //decimal currentST = ValueRequest(entry, "ST_Intensity");
+                //decimal currentTotal = ValueRequest(entry, "Total_Intensity");
+
+                info.Add(new DataObject { name = entry.name, el = currentEL, cw = currentCW, st = currentST, total = currentTotal });
             }
 
             return info;
         }
 
-        public static void GetTrend()
+        public static List<TimeValuePair> GetTrend()
         {
-            GetRange(summaryData, "Electric_Power");
-            GetRange(summaryData, "CW_Power");
-            GetRange(summaryData, "Steam_Power");
+            List<TimeValuePair> info = new List<TimeValuePair>();
+
+            dynamic elTrends = GetRange(summaryData, "Electric_Power");
+
+            foreach (dynamic d in elTrends)
+            {
+                if (!(bool)d.Good)
+                    continue;
+
+                info.Add(new TimeValuePair { name = "el", timestamp = (string)d.Timestamp, value = (decimal)d.Value });
+            }
+
+            dynamic cwTrends = GetRange(summaryData, "CW_Power");
+
+            foreach (dynamic d in cwTrends)
+            {
+                Type t = d.Value.GetType();
+
+                if (t == typeof(JObject))
+                    continue;
+
+                string time = d.Timestamp;
+                decimal val = d.Value;
+                info.Add(new TimeValuePair { name = "cw", timestamp = time, value = val });
+            }
+
+            dynamic stTrends = GetRange(summaryData, "Steam_Power");
+            foreach (dynamic d in stTrends)
+            {
+                Type t = d.Value.GetType();
+
+                if (t == typeof(JObject))
+                    continue;
+
+                string time = d.Timestamp;
+                decimal val = d.Value;
+                info.Add(new TimeValuePair { name = "st", timestamp = time, value = val });
+            }
+
+            return info;
         }
 
         static decimal ValueRequest(BuildingData entry, string name)
@@ -135,7 +213,15 @@ namespace WebApplication2.Model
             {
                 string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streams/{0}/value", id);
                 dynamic response = MakeRequest(query);
-                string stringVal = response.Value;
+
+                // TODO more robust error handling here
+                // if value of the response is an error message, it returns a JObject instead of a JValue
+                Type t = response.Value.GetType();
+
+                if (t == typeof(JObject))
+                    return -1;
+
+                String stringVal = response.Value;
                 decimal val;
 
                 if (Decimal.TryParse(stringVal, out val))
@@ -156,29 +242,28 @@ namespace WebApplication2.Model
         static dynamic MassRequest(string id)
         {
             string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streamsets/{0}/value", id);
-            dynamic response = MakeRequest(query);
-            return response.Items;
+            return MakeRequest(query).Items;
         }
 
-        static void GetRange(BuildingData entry, string name, string startTime = "-1w", string endTime = "*", string interval = "1h")
+        static dynamic GetRange(BuildingData entry, string name, string startTime = "-1w", string endTime = "*", string interval = "1h")
         {
             string id;
 
             if (entry.attributes.TryGetValue(name, out id))
             {
                 string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streams/{0}/interpolated?startTime={1}&endTime={2}&interval={3}", id, startTime, endTime, interval);
-                dynamic response = MakeRequest(query);
-                Console.WriteLine(response);
+                return MakeRequest(query).Items;
             }
             else
             {
                 Console.WriteLine("Failed");
+                return null;
             }
         }
 
         internal static dynamic MakeRequest(string url) //an internal method that takes a url
         {
-            dynamic json = MakeRequestAsync(url).Result; //returns results of MakeRequestAsync
+            string json = MakeRequestAsync(url).Result; //returns results of MakeRequestAsync
             dynamic results = JsonConvert.DeserializeObject<dynamic>(json);
             return results;
         }
@@ -195,7 +280,7 @@ namespace WebApplication2.Model
             return result;
         }
 
-        internal static async Task<dynamic> MakeRequestAsync(string url)
+        internal static async Task<string> MakeRequestAsync(string url)
         {
             // ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
             //start

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Web;
 using System.Web.Mvc;
 using WebApplication2.Model;
+using System.Xml;
 
 namespace WebApplication2.Controllers
 {
@@ -15,13 +16,28 @@ namespace WebApplication2.Controllers
             return Content("hello");
         }
 
-        public ActionResult CurrentConsumption()
+        public ActionResult Consumption()
         {
-            DataObject result = APIModel.GetCurrentConsumption();
-            return Content(result.el + "\n" + result.cw + "\n" + result.st);
+            DataObject dobj = APIModel.GetCurrentConsumption();
+
+            XmlWriterSettings settings = new XmlWriterSettings();
+            settings.OmitXmlDeclaration = true;
+            settings.Indent = true;
+            settings.NewLineOnAttributes = true;
+
+            using (XmlWriter xml = XmlWriter.Create(@"H:\\out.xml", settings))
+            {
+                xml.WriteStartElement("consumption");
+                xml.WriteElementString("el", dobj.el.ToString());
+                xml.WriteElementString("cw", dobj.cw.ToString());
+                xml.WriteElementString("st", dobj.st.ToString());
+                xml.WriteEndDocument();
+            }
+
+            return File(@"H:\\out.xml", "application.xml");
         }
 
-        public ActionResult CurrentIntensity()
+        public ActionResult Intensity()
         {
             List<DataObject> buildings = APIModel.GetCurrentIntensity();
             IEnumerable<DataObject> query =
@@ -29,18 +45,58 @@ namespace WebApplication2.Controllers
                 orderby obj.total descending
                 select obj;
 
-            string s = "";
+            XmlWriterSettings settings = new XmlWriterSettings();
+            settings.OmitXmlDeclaration = true;
+            settings.Indent = true;
+            settings.NewLineOnAttributes = true;
 
-            foreach (DataObject dobj in query)
+            using (XmlWriter xml = XmlWriter.Create(@"H:\\out.xml", settings))
             {
-                s += dobj.el + "\t" + dobj.cw + "\t" + dobj.st + "\t" + dobj.total + "\n\n";
+                xml.WriteStartElement("intensity");
+
+                foreach (DataObject dobj in query)
+                {
+                    xml.WriteStartElement("building");
+                    xml.WriteAttributeString("name", dobj.name);
+                    xml.WriteElementString("el", dobj.el.ToString());
+                    xml.WriteElementString("cw", dobj.cw.ToString());
+                    xml.WriteElementString("st", dobj.st.ToString());
+                    xml.WriteElementString("total", dobj.total.ToString());
+                    xml.WriteEndElement();
+                }
+
+                xml.WriteEndDocument();
             }
-            return Content(s);
+
+            return File(@"H:\\out.xml", "application.xml");
         }
 
-        public ActionResult EnergyTrend()
+        public ActionResult Trend()
         {
-            return Content("trend");
+            List<TimeValuePair> pair = APIModel.GetTrend();
+
+            XmlWriterSettings settings = new XmlWriterSettings();
+            settings.OmitXmlDeclaration = true;
+            settings.Indent = true;
+            settings.NewLineOnAttributes = true;
+
+            using (XmlWriter xml = XmlWriter.Create(@"H:\\out.xml", settings))
+            {
+                xml.WriteStartElement("trend");
+
+                foreach (TimeValuePair dobj in pair)
+                {
+                    xml.WriteStartElement("data");
+                    xml.WriteAttributeString("util", dobj.name);
+                    xml.WriteElementString("time", dobj.timestamp.ToString());
+                    xml.WriteElementString("value", dobj.value.ToString());
+                    xml.WriteEndElement();
+                }
+
+                xml.WriteEndDocument();
+            }
+
+            return File(@"H:\\out.xml", "application.xml");
         }
     }
 }
