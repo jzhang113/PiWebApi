@@ -15,63 +15,64 @@ namespace WebApplication2.Model
 {
     public class TimeValuePair
     {
-        public string name { get; set; }
-        public string timestamp { get; set; }
-        public decimal value { get; set; }
+        public string Name { get; set; }
+        public string Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public string Units { get; set; }
     }
 
     public class DataObject
     {
-        public string name { get; set; }
-        public decimal el { get; set; }
-        public decimal cw { get; set; }
-        public decimal st { get; set; }
-        public decimal total { get; set; }
+        public string Name { get; set; }
+        public decimal EL { get; set; }
+        public decimal CW { get; set; }
+        public decimal ST { get; set; }
+        public decimal Total { get; set; }
     }
 
     public class BuildingData
     {
-        public string name { get; set; }
-        public string id { get; set; }
-        public Dictionary<string, string> attributes { get; set; }
+        public string Name { get; set; }
+        public string Id { get; set; }
+        public Dictionary<string, string> Attributes { get; set; }
     }
 
     public static class APIModel
     {
-        static string piWebApiServer = "pi-web-api.facilities.uiowa.edu";
-        static string databasePath = @"\\pi-af.facilities.uiowa.edu\PIDB-AF\Location\Main Campus";
-        static string urlFormat = "https://{0}/piwebapi/elements?path={1}";
-        static string rootUrl = string.Format(urlFormat, piWebApiServer, databasePath);
+        static string PiWebApiServer = "pi-web-api.facilities.uiowa.edu";
+        static string DatabasePath = @"\\pi-af.facilities.uiowa.edu\PIDB-AF\Location\Main Campus";
+        static string UrlFormat = "https://{0}/piwebapi/elements?path={1}";
+        static string RootUrl = string.Format(UrlFormat, PiWebApiServer, DatabasePath);
 
-        static string selector = "?selectedFields=Items.Name;Items.WebId";
+        static string Selector = "?selectedFields=Items.Name;Items.WebId";
 
-        static BuildingData summaryData;
-        static List<BuildingData> buildingList;
+        static BuildingData SummaryData;
+        static List<BuildingData> BuildingList;
 
         static APIModel()
         {
-            dynamic root = MakeRequest(rootUrl);
+            dynamic root = MakeRequest(RootUrl);
 
             // initialize summaryData
             string summaryQuery = root.Links.Attributes + selector;
             dynamic summary = MakeRequest(summaryQuery).Items;
 
-            summaryData = new BuildingData
+            SummaryData = new BuildingData
             {
-                name = root.Name,
-                id = root.WebId,
-                attributes = new Dictionary<string, string>()
+                Name = root.Name,
+                Id = root.WebId,
+                Attributes = new Dictionary<string, string>()
             };
 
             foreach (dynamic d in summary)
             {
                 string name = d.Name;
                 string id = d.WebId;
-                summaryData.attributes.Add(name, id);
+                SummaryData.Attributes.Add(name.ToLower(), id);
             }
 
             // initialize buildingList
-            buildingList = new List<BuildingData>();
+            BuildingList = new List<BuildingData>();
             string buildingQuery = root.Links.Elements + "?templateName=BuildingTemplate&searchFullHierarchy=true";
             dynamic buildings = MakeRequest(buildingQuery).Items;
 
@@ -83,55 +84,75 @@ namespace WebApplication2.Model
                     continue;
                 }
 
-                string attrQuery = b.Links.Attributes + selector;
+                string attrQuery = b.Links.Attributes + Selector;
                 dynamic attr = MakeRequest(attrQuery).Items;
 
                 BuildingData item = new BuildingData
                 {
-                    name = b.Name,
-                    id = b.WebId,
-                    attributes = new Dictionary<string, string>()
+                    Name = b.Name,
+                    Id = b.WebId,
+                    Attributes = new Dictionary<string, string>()
                 };
 
                 foreach (dynamic d in attr)
                 {
                     string name = d.Name;
                     string id = d.WebId;
-                    item.attributes.Add(name, id);
+                    item.Attributes.Add(name.ToLower(), id);
                 }
 
-                buildingList.Add(item);
+                BuildingList.Add(item);
             }
         }
 
         public static DataObject GetCurrentConsumption()
         {
-            decimal currentEL = ValueRequest(summaryData, "Electric_Power");
-            decimal currentCW = ValueRequest(summaryData, "CW_Power");
-            decimal currentST = ValueRequest(summaryData, "Steam_Power");
+            decimal currentEL = ValueRequest(SummaryData, "Electric_Power");
+            decimal currentCW = ValueRequest(SummaryData, "CW_Power");
+            decimal currentST = ValueRequest(SummaryData, "Steam_Power");
 
-            return new DataObject { el = currentEL, cw = currentCW, st = currentST, total = -1 };
+            return new DataObject { EL = currentEL, CW = currentCW, ST = currentST };
         }
 
-        public static List<DataObject> GetCurrentIntensity()
+        public static List<DataObject> GetCurrentIntensity(string building)
         {
             List<DataObject> info = new List<DataObject>();
 
-            foreach (BuildingData entry in buildingList)
+            if (building != null)
             {
-                List<dynamic> d = MassRequest(entry.id).ToObject<List<dynamic>>();
+                BuildingData b = BuildingList.Find(x => x.Name == building);
+
+                if (b == null)
+                {
+                    info.Add(new DataObject { Name = building, EL = -1, CW = -1, ST = -1, Total = -1 });
+                }
+                else
+                {
+                    decimal currentEL = ValueRequest(b, "EL_Intensity");
+                    decimal currentCW = ValueRequest(b, "CW_Intensity");
+                    decimal currentST = ValueRequest(b, "ST_Intensity");
+                    decimal currentTotal = ValueRequest(b, "Total_Intensity");
+
+                    info.Add(new DataObject { Name = building, EL = currentEL, CW = currentCW, ST = currentST, Total = currentTotal });
+                }
+
+                return info;
+            }
+
+            foreach (BuildingData entry in BuildingList)
+            {
+                List<dynamic> d = MassRequest(entry.Id).ToObject<List<dynamic>>();
 
                 decimal currentEL = -1, currentCW = -1, currentST = -1, currentTotal = -1;
 
                 foreach (dynamic metric in d)
                 {
-                    string metricName = metric.Name;
-                    //error handling here too
-                    Type t = metric.Value.Value.GetType();
-
-                    if (t == typeof(JObject))
+                    if (!(bool)metric.Value.Good)
+                    {
                         continue;
+                    }
 
+                    string metricName = metric.Name;
                     string value = metric.Value.Value;
 
                     switch (metricName)
@@ -150,76 +171,35 @@ namespace WebApplication2.Model
                             break;
                     }
                 }
-                //decimal currentEL = ValueRequest(entry, "EL_Intensity");
-                //decimal currentCW = ValueRequest(entry, "CW_Intensity");
-                //decimal currentST = ValueRequest(entry, "ST_Intensity");
-                //decimal currentTotal = ValueRequest(entry, "Total_Intensity");
 
-                info.Add(new DataObject { name = entry.name, el = currentEL, cw = currentCW, st = currentST, total = currentTotal });
+                info.Add(new DataObject { Name = entry.Name, EL = currentEL, CW = currentCW, ST = currentST, Total = currentTotal });
             }
 
             return info;
         }
 
-        public static List<TimeValuePair> GetTrend()
+        public static List<TimeValuePair> GetTrend(string field)
         {
             List<TimeValuePair> info = new List<TimeValuePair>();
 
-            dynamic elTrends = GetRange(summaryData, "Electric_Power");
-
-            foreach (dynamic d in elTrends)
-            {
-                if (!(bool)d.Good)
-                    continue;
-
-                info.Add(new TimeValuePair { name = "el", timestamp = (string)d.Timestamp, value = (decimal)d.Value });
-            }
-
-            dynamic cwTrends = GetRange(summaryData, "CW_Power");
-
-            foreach (dynamic d in cwTrends)
-            {
-                Type t = d.Value.GetType();
-
-                if (t == typeof(JObject))
-                    continue;
-
-                string time = d.Timestamp;
-                decimal val = d.Value;
-                info.Add(new TimeValuePair { name = "cw", timestamp = time, value = val });
-            }
-
-            dynamic stTrends = GetRange(summaryData, "Steam_Power");
-            foreach (dynamic d in stTrends)
-            {
-                Type t = d.Value.GetType();
-
-                if (t == typeof(JObject))
-                    continue;
-
-                string time = d.Timestamp;
-                decimal val = d.Value;
-                info.Add(new TimeValuePair { name = "st", timestamp = time, value = val });
-            }
+            AddValues(ref info, field);
 
             return info;
         }
 
-        static decimal ValueRequest(BuildingData entry, string name)
+        private static decimal ValueRequest(BuildingData entry, string name)
         {
             string id;
 
-            if (entry.attributes.TryGetValue(name, out id))
+            if (entry.Attributes.TryGetValue(name.ToLower(), out id))
             {
                 string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streams/{0}/value", id);
                 dynamic response = MakeRequest(query);
 
-                // TODO more robust error handling here
-                // if value of the response is an error message, it returns a JObject instead of a JValue
-                Type t = response.Value.GetType();
-
-                if (t == typeof(JObject))
+                if (!(bool)response.Good)
+                {
                     return -1;
+                }
 
                 String stringVal = response.Value;
                 decimal val;
@@ -239,25 +219,47 @@ namespace WebApplication2.Model
             }
         }
 
-        static dynamic MassRequest(string id)
+        private static dynamic MassRequest(string id)
         {
             string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streamsets/{0}/value", id);
             return MakeRequest(query).Items;
         }
 
-        static dynamic GetRange(BuildingData entry, string name, string startTime = "-1w", string endTime = "*", string interval = "1h")
+        private static dynamic GetRange(BuildingData entry, string name, string startTime = "-1w", string endTime = "*", string interval = "1h")
         {
             string id;
 
-            if (entry.attributes.TryGetValue(name, out id))
+            if (entry.Attributes.TryGetValue(name.ToLower(), out id))
             {
                 string query = String.Format("https://pi-web-api.facilities.uiowa.edu/piwebapi/streams/{0}/interpolated?startTime={1}&endTime={2}&interval={3}", id, startTime, endTime, interval);
                 return MakeRequest(query).Items;
             }
             else
             {
-                Console.WriteLine("Failed");
                 return null;
+            }
+        }
+
+        private static void AddValues(ref List<TimeValuePair> list, string dataName)
+        {
+            dynamic hist = GetRange(SummaryData, dataName);
+
+            if (hist == null)
+            {
+                return;
+            }
+
+            foreach (dynamic d in hist)
+            {
+                if (!(bool)d.Good)
+                {
+                    continue;
+                }
+
+                string time = d.Timestamp;
+                decimal val = d.Value;
+                string unitAbbrev = d.UnitsAbbreviation;
+                list.Add(new TimeValuePair { Name = dataName, Timestamp = time, Value = val, Units = unitAbbrev });
             }
         }
 

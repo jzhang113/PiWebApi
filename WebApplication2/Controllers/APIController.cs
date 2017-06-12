@@ -13,7 +13,7 @@ namespace WebApplication2.Controllers
         // GET: API
         public ActionResult Index()
         {
-            return Content("hello");
+            return View();
         }
 
         public ActionResult Consumption()
@@ -27,23 +27,19 @@ namespace WebApplication2.Controllers
 
             using (XmlWriter xml = XmlWriter.Create(@"H:\\out.xml", settings))
             {
-                xml.WriteStartElement("consumption");
-                xml.WriteElementString("el", dobj.el.ToString());
-                xml.WriteElementString("cw", dobj.cw.ToString());
-                xml.WriteElementString("st", dobj.st.ToString());
+                xml.WriteStartElement("Consumption");
+                xml.WriteElementString("Electric", dobj.EL.ToString());
+                xml.WriteElementString("Chilled_Water", dobj.CW.ToString());
+                xml.WriteElementString("Steam", dobj.ST.ToString());
                 xml.WriteEndDocument();
             }
 
-            return File(@"H:\\out.xml", "application.xml");
+            return File(@"H:\\out.xml", "application/xml");
         }
 
-        public ActionResult Intensity()
+        public ActionResult Intensity(string building)
         {
-            List<DataObject> buildings = APIModel.GetCurrentIntensity();
-            IEnumerable<DataObject> query =
-                from obj in buildings
-                orderby obj.total descending
-                select obj;
+            List<DataObject> buildingNames = APIModel.GetCurrentIntensity(building);
 
             XmlWriterSettings settings = new XmlWriterSettings();
             settings.OmitXmlDeclaration = true;
@@ -54,26 +50,26 @@ namespace WebApplication2.Controllers
             {
                 xml.WriteStartElement("intensity");
 
-                foreach (DataObject dobj in query)
+                foreach (DataObject dobj in buildingNames)
                 {
-                    xml.WriteStartElement("building");
-                    xml.WriteAttributeString("name", dobj.name);
-                    xml.WriteElementString("el", dobj.el.ToString());
-                    xml.WriteElementString("cw", dobj.cw.ToString());
-                    xml.WriteElementString("st", dobj.st.ToString());
-                    xml.WriteElementString("total", dobj.total.ToString());
+                    xml.WriteStartElement("Building");
+                    xml.WriteElementString("Name", dobj.Name);
+                    xml.WriteElementString("Electric", dobj.EL.ToString());
+                    xml.WriteElementString("Chilled_Water", dobj.CW.ToString());
+                    xml.WriteElementString("Steam", dobj.ST.ToString());
+                    xml.WriteElementString("Total", dobj.Total.ToString());
                     xml.WriteEndElement();
                 }
 
                 xml.WriteEndDocument();
             }
 
-            return File(@"H:\\out.xml", "application.xml");
+            return File(@"H:\\out.xml", "application/xml");
         }
 
-        public ActionResult Trend()
+        public ActionResult Trend(string name = "Electric_Power")
         {
-            List<TimeValuePair> pair = APIModel.GetTrend();
+            List<TimeValuePair> pair = APIModel.GetTrend(name);
 
             XmlWriterSettings settings = new XmlWriterSettings();
             settings.OmitXmlDeclaration = true;
@@ -82,21 +78,22 @@ namespace WebApplication2.Controllers
 
             using (XmlWriter xml = XmlWriter.Create(@"H:\\out.xml", settings))
             {
-                xml.WriteStartElement("trend");
+                xml.WriteStartElement("Trend");
 
                 foreach (TimeValuePair dobj in pair)
                 {
-                    xml.WriteStartElement("data");
-                    xml.WriteAttributeString("util", dobj.name);
-                    xml.WriteElementString("time", dobj.timestamp.ToString());
-                    xml.WriteElementString("value", dobj.value.ToString());
+                    xml.WriteStartElement("Data");
+                    xml.WriteElementString("Name", name);
+                    xml.WriteElementString("Time", dobj.Timestamp.ToString());
+                    xml.WriteElementString("Value", dobj.Value.ToString());
+                    
                     xml.WriteEndElement();
                 }
 
                 xml.WriteEndDocument();
             }
 
-            return File(@"H:\\out.xml", "application.xml");
+            return File(@"H:\\out.xml", "application/xml");
         }
     }
 }

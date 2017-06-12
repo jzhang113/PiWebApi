@@ -10,7 +10,7 @@ namespace WebApplication2.Controllers
     {
         public ActionResult Index()
         {
-            return RedirectToAction("Trend", "API");
+            return RedirectToAction("Index", "API");
         }
 
         public ActionResult About()
